@@ -1,0 +1,7 @@
+# ignore python cache files
+*.pyc
+*.pyo
+__pycache__/
+
+# ignore notebooks folder
+notebooks/
