@@ -5,3 +5,7 @@ __pycache__/
 
 # ignore notebooks folder
 notebooks/
+
+# ignore database folder
+database/
+database
