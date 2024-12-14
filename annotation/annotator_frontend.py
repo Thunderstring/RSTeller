@@ -861,20 +861,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--service_account",
         type=str,
-        default="scriptlogin@ee-no-profit-osm.iam.gserviceaccount.com",
+        default=None,
         help="The service account to use for GEE authentication.",
     )
     parser.add_argument(
         "--credentials_file",
         type=str,
-        default="ee-no-profit-osm-ce98e252380f.json",
+        default=None,
         help="The file to save the GEE credentials.",
     )
 
     args = parser.parse_args()
 
-    service_account = args.service_account
-    credentials = ee.ServiceAccountCredentials(service_account, args.credentials_file)
+    credentials = ee.ServiceAccountCredentials(args.service_account, args.credentials_file)
     ee.Initialize(credentials)
     # test manager process
     db_root = args.db_root
