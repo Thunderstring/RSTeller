@@ -40,50 +40,12 @@ class RewriteDataProducer(BaseDataProducer):
         
         self.conn_anno = sqlite3.connect(self.annotation_db)
         self.conn_anno_meta = sqlite3.connect(self.annotation_meta_db)
-        # self.prefetch_data_static()
         
     def deinit_database(self):
         
         self.conn_anno.close()
         self.conn_anno_meta.close()
-        
-    # def prefetch_data_static(self):
-    #     # load table annotation, annotator_prompt, annotation_osm into memory
-    #     c = self.conn_anno.cursor()
-    #     c.execute("SELECT * FROM annotation")
-    #     self.annotation_table = pd.DataFrame(c.fetchall(), columns=[desc[0] for desc in c.description])
-    #     c.execute("SELECT * FROM annotator_prompt")
-    #     self.annotator_prompt_table = pd.DataFrame(c.fetchall(), columns=[desc[0] for desc in c.description])
-    #     c.execute("SELECT * FROM annotation_osm")
-    #     self.annotation_osm_table = pd.DataFrame(c.fetchall(), columns=[desc[0] for desc in c.description])
-        
-    #     # load prompt template for rewrite into memory
-    #     c.execute("select * from prompt where type = 11")
-    #     self.prompt_template = pd.DataFrame(c.fetchall(), columns=[desc[0] for desc in c.description])
-        
-    #     # load rewrite examples into memory
-    #     c_meta = self.conn_anno_meta.cursor()
-    #     c_meta.execute('select * from rewrite_raw')
-    #     self.rewrite_raw_table = pd.DataFrame(c_meta.fetchall(), columns=[desc[0] for desc in c_meta.description])
-    #     c_meta.execute('select * from rewrite_examples')
-    #     self.rewrite_examples_table = pd.DataFrame(c_meta.fetchall(), columns=[desc[0] for desc in c_meta.description])
-        
-    #     # exclude the broken patch ids
-    #     self.annotation_table['patch_valid'] = self.annotation_table['PATCH'].apply(lambda x: isinstance(x, int))
-    #     self.annotation_table = self.annotation_table[self.annotation_table['patch_valid'] == True]
-        
-    #     # count the number of duplicate annotations
-    #     duplicate_count = self.annotation_table.groupby(['PATCH']).size().reset_index(name='count')
-    #     duplicate_count.sort_values(by='count', ascending=True, inplace=True)
-        
-    #     # keep the patches with less than max_rewrites annotations
-    #     valid_patches = duplicate_count[duplicate_count['count'] < 2]['PATCH']
-    #     self.sampled_patches = valid_patches[:self.prefetch_size].tolist()
 
-    # def prefetch_data(self):
-    
-        
-    #     return self.sampled_patches.copy()     
     def prefetch_data(self):
         
         # load table annotation, annotator_prompt, annotation_osm into memory

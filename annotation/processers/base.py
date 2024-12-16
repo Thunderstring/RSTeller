@@ -41,6 +41,12 @@ class BaseDataProducer(Process, metaclass=abc.ABCMeta):
     
     @abc.abstractmethod
     def prefetch_data(self, **kwargs):
+        """implement this function to prefetch data from database, cache some data if necessary. \
+            return a list of patch id for subsequent data generation.
+
+        Raises:
+            NotImplementedError
+        """
         
         raise NotImplementedError
     
@@ -89,7 +95,7 @@ class BaseDataProducer(Process, metaclass=abc.ABCMeta):
             
             # get a task from data buffer
             try:
-                task = self.generate_task(self.data_buffer.pop(0))
+                task = self.generate_task(self.data_buffer.pop())
             except Exception as e:
                 self.logger.error('Error occurred when generating task: {}'.format(e))
                 continue
