@@ -30,7 +30,7 @@ from prompt_toolkit import PromptSession
 
 from annotator_connector import AnnotatorConnector
 from processers.rewrite_data_producer import RewriteDataProducer
-from processers.default_data_producer import DataProducer
+from processers.default_data_producer import DefaultDataProducer
 
 import numpy as np
 import argparse
@@ -239,7 +239,7 @@ class ManagerProcess(Thread):
         self.annotator_connections = {}
 
         self.data_producers = [
-            DataProducer(
+            DefaultDataProducer(
                 self.task_queue,
                 self.task_lock,
                 self.affair_queue,

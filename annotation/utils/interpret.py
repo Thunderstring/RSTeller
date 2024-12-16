@@ -17,6 +17,8 @@ from .boundary import get_osm_working_boundary
 from shapely import from_wkt
 from shapely.geometry import box
 
+from typing import List
+import re
 
 def get_line_coord_str(geom, decimals=-1):
 
@@ -92,6 +94,29 @@ def clip_gdf_by_bbox(gdf, bbox, indicator=True):
         masked_gdf["clipped"] = gdf.geometry.within(box(*bbox)).apply(lambda x: not x)
     return masked_gdf
 
+def filter_tags_by_key(tags: dict, key: List[str]):
+    """Filter out tags by keys.
+
+    Args:
+        tags (dict): A dictionary of tags, each tag is a key-value pair.
+        key (List[str]): A list of keys to be filtered. The key can be a regular expression.
+
+    Returns:
+        dict: A dictionary of tags that do not match any key in the input key list.
+    """
+    clean_tags = {}
+    for k, v in tags.items():
+        # Flag to determine if the key matches any filter
+        is_filtered = False
+        for k_filter in key:
+            match_obj = re.match(k_filter, k)
+            if match_obj and match_obj.group() == k:
+                is_filtered = True
+                break
+        # Add the key to clean_tags if it does not match any filter
+        if not is_filtered:
+            clean_tags[k] = v
+    return clean_tags
 
 class GeometryNormalizer(object):
 
@@ -311,6 +336,7 @@ class BaseInterpreter(object):
         policy: str,
         wiki_db_path: str,
         candidate_elements: gpd.GeoDataFrame = None,
+        **kwargs
     ) -> None:
 
         self.interpret_tasks = interpret_tasks
@@ -318,6 +344,16 @@ class BaseInterpreter(object):
         self.wiki_db_path = wiki_db_path
         self.candidate_elements = candidate_elements
         self.conn_wiki = sqlite3.connect(self.wiki_db_path)
+        
+        if kwargs.get("filter_tag_keys", None) is not None:
+            self.filter_tag_keys = kwargs.get("filter_tag_keys")
+        else:
+            self.filter_tag_keys = None
+        
+        if self.filter_tag_keys is not None:
+            self.candidate_elements["tags"] = self.candidate_elements["tags"].apply(
+                lambda x: filter_tags_by_key(x, self.filter_tag_keys)
+            )
 
     def __enter__(self):
         return self
@@ -327,7 +363,7 @@ class BaseInterpreter(object):
 
     def get_working_element_ids(self):
 
-        return self.working_elements["id"].tolist()
+        return self.working_elements["osm_id"].tolist()
 
     def get_working_elements(self):
 
@@ -520,9 +556,9 @@ class BaseInterpreter(object):
 
     def fill_prompt(self, prompt_template: str, **kwargs):
         # fill the prompt template with the given arguments
-        # The prompt template should be a string with placeholders in curly braces, 
-        # e.g. "The area with the largest size within the ROI is centered at {norm_center}. 
-        # Its geometry is {norm_geometry} with a {shape} shape. 
+        # The prompt template should be a string with placeholders in curly braces,
+        # e.g. "The area with the largest size within the ROI is centered at {norm_center}.
+        # Its geometry is {norm_geometry} with a {shape} shape.
         # Its normalized size is {norm_area} and its real size is {area} square meters."
         return prompt_template.format(**kwargs)
 
@@ -543,12 +579,13 @@ class AreaInterpreter(BaseInterpreter):
             dict(task="clip"),
         ],
         policy="largest",
+        **kwargs
     ) -> None:
 
         assert policy in ["largest"], "Only largest area is supported for now"
 
-        super().__init__(interpret_tasks, policy, wiki_db_path, candidate_areas)
-        self.candidate_areas = candidate_areas
+        super().__init__(interpret_tasks, policy, wiki_db_path, candidate_areas, **kwargs)
+        self.candidate_areas = self.candidate_elements
         self.working_elements = self.get_working_elements()
         self.valid_threshold = 0.1
 
@@ -565,6 +602,7 @@ class AreaInterpreter(BaseInterpreter):
         return sorted_elements
 
     def get_working_elements(self):
+
 
         working_elements = self.sort_elements().iloc[[0]]
 
@@ -708,14 +746,15 @@ class NoneAreaInterpreter(BaseInterpreter):
             dict(task="clip"),
         ],
         policy="longgest_w_most_tags",
+        **kwargs
     ) -> None:
 
         assert policy in [
             "longgest_w_most_tags"
         ], "Only longgest as well as the most tags nonearea is supported for now"
 
-        super().__init__(interpret_tasks, policy, wiki_db_path, candidate_noneareas)
-        self.candidate_noneareas = candidate_noneareas
+        super().__init__(interpret_tasks, policy, wiki_db_path, candidate_noneareas, **kwargs)
+        self.candidate_noneareas = self.candidate_elements
         self.working_elements = self.get_working_elements()
 
     def sort_elements(self):
@@ -1083,6 +1122,20 @@ class AreaRelationInterpreter(object):
         return f, ax
 
 
+def tag_filter(tags, tag_filter_config):
+    # tags
+
+    if tag_filter_config is None:
+        return tags
+
+    filtered_tags = []
+    for tag in tags:
+        if tag in tag_filter_config:
+            filtered_tags.append(tag)
+
+    return filtered_tags
+
+
 def task2_interpretor(
     meta, osm_elements, wiki_db_path, prompt_template, interpret_configs: dict
 ):
@@ -1099,7 +1152,9 @@ def task2_interpretor(
         osm_working_area[2],
     ]
 
-    osm_area_gdf = gpd.GeoDataFrame(osm_elements, columns=["id", "tags", "geometry"])
+    osm_area_gdf = gpd.GeoDataFrame(
+        osm_elements, columns=["OSM_ID", "TAGS", "GEOMETRY"]
+    ).rename(columns={"OSM_ID": "osm_id", "TAGS": "tags", "GEOMETRY": "geometry"})
     osm_area_gdf["tags"] = osm_area_gdf["tags"].apply(lambda x: json.loads(x))
     osm_area_gdf["geometry"] = osm_area_gdf["geometry"].apply(lambda x: from_wkt(x))
     osm_area_gdf.set_geometry("geometry", inplace=True)
@@ -1112,12 +1167,12 @@ def task2_interpretor(
 
     # TODO: use dynamic config
     # normalizer_config = interpret_configs['normalizer']
-    normalizer_config = dict(proj_epsg=2062)
+    normalizer_config = {"proj_epsg": 2062}
     normalizer = GeometryNormalizer(working_area, **normalizer_config)
     normed_area_gdf = normalizer.area_normalization(masked_osm_area_gdf)
 
     # TODO: use dynamic config
-    interpreter_config = interpret_configs.get("interpreter", dict())
+    interpreter_config = interpret_configs.get("interpreter", {})
     with AreaInterpreter(
         normed_area_gdf, wiki_db_path, **interpreter_config
     ) as interpreter:
@@ -1126,7 +1181,7 @@ def task2_interpretor(
         if not interpreter.check_working_elements_validity():
             return None
 
-        prompt_vars = dict()
+        prompt_vars = {}
 
         meta_interpretation = interpreter.interpret_meta()
         tag_interpretation = interpreter.interpret_tags()
@@ -1135,17 +1190,17 @@ def task2_interpretor(
         for i, tag in enumerate(tag_interpretation):
             tags += f"Tag {i+1}. {tag}\n"
 
-        prompt_vars.update(dict(tags=tags))
+        prompt_vars.update({"tags": tags})
 
         prompt_vars.update(meta_interpretation)
-        prompt_vars.update(dict(tag_interpretation=tag_interpretation))
+        prompt_vars.update({"tag_interpretation": tag_interpretation})
         prompt = interpreter.fill_prompt(prompt_template, **prompt_vars)
         osm_ids = interpreter.get_working_element_ids()
 
     # remove duplicate '.'
     prompt = ".".join(prompt.split(".."))
 
-    return dict(prompt=prompt, osm_ids=osm_ids)
+    return {"prompt": prompt, "osm_ids": osm_ids}
 
 
 def task3_interpretor(
@@ -1165,8 +1220,8 @@ def task3_interpretor(
     ]
 
     osm_nonearea_gdf = gpd.GeoDataFrame(
-        osm_elements, columns=["id", "tags", "geometry"]
-    )
+        osm_elements, columns=["OSM_ID", "TAGS", "GEOMETRY"]
+    ).rename(columns={"OSM_ID": "osm_id", "TAGS": "tags", "GEOMETRY": "geometry"})
     osm_nonearea_gdf["tags"] = osm_nonearea_gdf["tags"].apply(lambda x: json.loads(x))
     osm_nonearea_gdf["geometry"] = osm_nonearea_gdf["geometry"].apply(
         lambda x: from_wkt(x)
@@ -1186,8 +1241,7 @@ def task3_interpretor(
     normed_area_gdf = normalizer.nonearea_normalization(masked_osm_nonearea_gdf)
 
     # TODO: use dynamic config
-    # interpreter_config = interpret_configs['interpreter']
-    interpreter_config = dict()
+    interpreter_config = interpret_configs.get("interpreter", {})
     with NoneAreaInterpreter(
         normed_area_gdf, wiki_db_path, **interpreter_config
     ) as interpreter:

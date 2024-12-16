@@ -106,7 +106,7 @@ class DefaultDataProducer(BaseDataProducer):
         self.prefetch_size = prefetch_size
         self.map_element_threshold = map_element_threshold
 
-        self.taskx_interpreter = dict()
+        self.taskx_interpreter = {}
         self.init_interpreters(self.policy_config)
         print("initialized data producer")
 
@@ -347,14 +347,20 @@ class DefaultDataProducer(BaseDataProducer):
 
         prompt_id, prompt_template, annotator_ids = prompt_selector_result
 
-        # query the osm data from the osm database
-        c_osm = self.conn_osm.cursor()
-        c_osm.execute(
-            self._SQL_QUERY_OSM.format(",".join([str(i) for i in osm_data_type])),
-            ("/".join([image_name, patch_name]),),
-        )
+        # lagacy code: query the osm data from the osm database
+        # c_osm = self.conn_osm.cursor()
+        # c_osm.execute(
+        #     self._SQL_QUERY_OSM.format(",".join([str(i) for i in osm_data_type])),
+        #     ("/".join([image_name, patch_name]),),
+        # )
 
-        osm_elements = c_osm.fetchall()
+        # osm_elements = c_osm.fetchall()
+        # update code: query the osm data from the cached osm table
+        osm_elements = self.osm_table.loc[
+            (self.osm_table["PATCH_NAME"] == "/".join([image_name, patch_name]))
+        ]
+        osm_elements = osm_elements[osm_elements['TYPE'].isin(osm_data_type)]
+        
         self.logger.info(
             f"Fetched {len(osm_elements)} osm elements for {image_name}/{patch_name}. Patch id: {patch_id}."
         )
