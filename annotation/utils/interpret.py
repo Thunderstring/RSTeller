@@ -466,12 +466,12 @@ class BaseInterpreter(object):
 
     def interpret_meta(self):
 
-        interpretations = dict()
+        interpretations = {}
         for task in self.interpret_tasks:
             _task = task.copy()
             task_name = _task.pop("task")
             interpret_func = getattr(self, "_task_{}".format(task_name))
-            interpretations[task_name] = interpret_func(**_task)
+            interpretations[task_name] = interpret_func(**_task, **interpretations)
 
         return interpretations
 
@@ -853,30 +853,17 @@ class NoneAreaInterpreter(BaseInterpreter):
         length = self.working_elements["length"][0]
         return "{:.{}f}".format(length, precision)
 
-    # example of how to use the orientation function
-    # def interpret_orientation(self):
-
-    #     orientation = "Cannot be determined"
-
-    #     if not self.geom_type == "LineString":
-    #         return orientation
-
-    #     pt1, pt2 = tuple(self.start_pt.coords)[0], tuple(self.end_pt.coords)[0]
-    #     angle = np.arctan(np.divide((pt2[1] - pt1[1]), (pt2[0] - pt1[0])))
-    #     if angle == np.pi/2:
-    #         angle = -np.pi/2
-
-    #     for k, ranges in self._ORIENTATION.items():
-    #         for r in ranges:
-    #             if angle >= r[0] and angle < r[1]:
-    #                 orientation=k
-    #                 break
-
-    #     return orientation
-
     def _task_orientation(self, **kwargs):
 
         orientation = "Cannot be determined"
+
+        sinuosity = kwargs.get("sinuosity", None)
+        if sinuosity is None:
+            raise ValueError("Sinuosity is not provided. Please run sinuosity task before orientation task.")
+
+        if sinuosity not in ["curved", "straight"]:
+            orientation = "Too curved or too twisted to determine the orientation"
+            return orientation
 
         geom = self.working_elements["normed_geometry"][0]
 
@@ -884,9 +871,10 @@ class NoneAreaInterpreter(BaseInterpreter):
             start_pt = geom.interpolate(0)
             end_pt = geom.interpolate(1, normalized=True)
 
-            angle = np.arctan(
-                np.divide((end_pt.y - start_pt.y), (end_pt.x - start_pt.x))
+            angle = np.arctan2(
+                (end_pt.y - start_pt.y), (end_pt.x - start_pt.x)
             )
+            angle = (angle + np.pi / 2) % np.pi - np.pi / 2
             if angle == np.pi / 2:
                 angle = -np.pi / 2
         elif geom.geom_type == "MultiLineString":
@@ -897,8 +885,8 @@ class NoneAreaInterpreter(BaseInterpreter):
                     start_pt = line.interpolate(0)
                     end_pt = line.interpolate(1, normalized=True)
                     max_length = line.length
-                    angle = np.arctan(
-                        np.divide((end_pt.y - start_pt.y), (end_pt.x - start_pt.x))
+                    angle = np.arctan2(
+                        (end_pt.y - start_pt.y), (end_pt.x - start_pt.x)
                     )
                     if angle == np.pi / 2:
                         angle = -np.pi / 2

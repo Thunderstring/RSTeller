@@ -1,0 +1,26 @@
+{
+    "interpreter": {
+        "filter_tag_keys": [
+            "tiger:cfcc",
+            "tiger:reviewed",
+            "tiger:upload_uuid.*",
+            "tiger:tlid",
+            "^tiger:zip.*",
+            "gnis:f.*",
+            "gnis:created",
+            "gnis:.*id",
+            "gnis:edited",
+            "addr:flats",
+            "ref",
+            "created_by",
+            "^[Nn][Hh][Dd].*",
+            "FMMP_.*",
+            ".*source.*",
+            "^nysgissam.*",
+            ".*postcode.*",
+            ".*housenumber.*",
+            ".*phone.*",
+            ".*website.*"
+        ]
+    }
+}

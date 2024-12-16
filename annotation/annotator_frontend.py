@@ -13,7 +13,7 @@ from multiprocessing import Process, Event
 from queue import PriorityQueue, Queue
 from multiprocessing import Queue as MPQueue
 from threading import Thread, Lock
-
+import json
 
 import logging
 from logging.handlers import RotatingFileHandler
@@ -21,8 +21,6 @@ from logging.handlers import RotatingFileHandler
 import ee
 
 from utils.interpret import (
-    task2_interpretor,
-    task3_interpretor,
     annotation_parser_prompt1_annotator1,
     annotation_parser_prompt4_annotator,
 )
@@ -519,6 +517,12 @@ if __name__ == "__main__":
         default=None,
         help="The file to save the GEE credentials.",
     )
+    parser.add_argument(
+        "--policy_config",
+        type=str,
+        default='configs/policy_config.json',
+        help="The policy configuration file, in JSON format.",
+    )
 
     args = parser.parse_args()
 
@@ -536,7 +540,7 @@ if __name__ == "__main__":
     tick_interval = args.tick_interval
     num_data_producer = args.num_data_producer
 
-    policy_config = {}
+    policy_config = json.load(open(args.policy_config))
 
     log_format = "%(asctime)s %(name)-20s %(levelname)-8s %(message)s"
     logging.basicConfig(

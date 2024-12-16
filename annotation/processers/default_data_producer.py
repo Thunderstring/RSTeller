@@ -278,8 +278,11 @@ class DefaultDataProducer(BaseDataProducer):
             )
             self.conn_metadata.commit()
             return None
-        if 2 in available_task_types:
-            task_type = 2
+        
+        if len(available_task_types) == 2:
+            # FIXME: this is a hack. We find that non-area is more in quantity than area, so we give a higher weight to area.
+            available_task_types.sort()
+            task_type = random.choice(available_task_types, weights=[0.7, 0.3])
         else:
             task_type = random.choice(available_task_types)
 
@@ -417,7 +420,7 @@ class DefaultDataProducer(BaseDataProducer):
 if __name__ == "__main__":
     import time
     import ee
-    
+    import json
     ee.Initialize()
 
     queue = Queue()
@@ -429,7 +432,7 @@ if __name__ == "__main__":
     osm_db = "osm.db"
     annotation_db = "annotation.db"
     osm_wiki_db = "taginfo-wiki.db"
-    policy_config = {}
+    policy_config = json.load(open("/mnt/SrvUserDisk/Gejunyao/VLP/RSVLD/annotation/configs/policy_config.json", "r"))
     prefetch_size = 10
     map_element_threshold = 5
     data_producer = DefaultDataProducer(
