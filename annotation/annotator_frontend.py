@@ -114,10 +114,11 @@ class DataSaver(Process):
                 # TODO implement the annotation parser dynamically
                 # for now, we use the default annotation parser
                 try:
-                    if prompt_id == 4:
-                        annotation = annotation_parser_prompt4_annotator(annotation)
-                    else:
-                        annotation = annotation_parser_prompt1_annotator1(annotation)
+                    # if prompt_id == 4:
+                    #     annotation = annotation_parser_prompt4_annotator(annotation)
+                    # else:
+                    #     annotation = annotation_parser_prompt1_annotator1(annotation)
+                    annotation = annotation
                 except Exception as e:
                     self.logger.error(
                         f"Error in parsing the annotation:\n {annotation} \n {e}"
@@ -256,19 +257,19 @@ class ManagerProcess(Thread):
             for i in range(self.num_data_producer)
         ]
 
-        rewrite_producer = RewriteDataProducer(
-            self.task_queue,
-            self.task_lock,
-            self.affair_queue,
-            self.affair_lock,
-            self.db_root,
-            self.annotation_db,
-            "annotation_meta.db",
-            max_rewrites=5,
-            prefetch_size=10000,
-            producer_id=len(self.data_producers) + 1,
-        )
-        self.data_producers.append(rewrite_producer)
+        # rewrite_producer = RewriteDataProducer(
+        #     self.task_queue,
+        #     self.task_lock,
+        #     self.affair_queue,
+        #     self.affair_lock,
+        #     self.db_root,
+        #     self.annotation_db,
+        #     "annotation_meta.db",
+        #     max_rewrites=5,
+        #     prefetch_size=10000,
+        #     producer_id=len(self.data_producers) + 1,
+        # )
+        # self.data_producers.append(rewrite_producer)
 
         self.data_worker = DataSaver(
             self.save_queue,

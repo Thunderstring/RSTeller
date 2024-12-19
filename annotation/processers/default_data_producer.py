@@ -107,14 +107,19 @@ class DefaultDataProducer(BaseDataProducer):
         self.map_element_threshold = map_element_threshold
 
         self.taskx_interpreter = {}
+        self.rng = random.Random()
         self.init_interpreters(self.policy_config)
-        print("initialized data producer")
-
+        
     def init_database(self):
 
         self.conn_metadata = sqlite3.connect(self.metadata_db, timeout=60)
         self.conn_osm = sqlite3.connect(self.osm_db, timeout=60)
         self.conn_annotation = sqlite3.connect(self.annotation_db, timeout=60)
+        # caching 40G osm data usually takes 3 minutes
+        self.osm_table = pd.read_sql_query(
+            "SELECT * FROM osm_data WHERE TYPE in (1, 2)",
+            self.conn_osm,
+        )
         self.logger.info("Connected to the database")
 
     def deinit_database(self):
@@ -140,21 +145,13 @@ class DefaultDataProducer(BaseDataProducer):
         
         # release the memory of the previous prefetch data
         self.metadata_table = None
-        self.osm_table = None
         self.annotator_prompt_table = None
         self.prompt_template_table = None
         
-        print("prefetching data...")
         self.metadata_table = pd.read_sql_query(
             self._SQL_QUERY_METAS, self.conn_metadata
         )
-        print("prefetching osm data...")
-        # caching 40G osm data usually takes 3 minutes
-        self.osm_table = pd.read_sql_query(
-            "SELECT * FROM osm_data",
-            self.conn_osm,
-        )
-        print("prefetching annotator prompt data...")
+
         # cache annotation metadata
         self.annotator_prompt_table = pd.read_sql_query(
             "SELECT * FROM annotator_prompt",
@@ -184,7 +181,7 @@ class DefaultDataProducer(BaseDataProducer):
         self.metadata_table["NUM_ANNOTATIONS"] = self.metadata_table[
             "NUM_ANNOTATIONS"
         ].fillna(0)
-
+        
         # sort the metadata table by number of annotations from low to high
         self.metadata_table = self.metadata_table.sort_values(
             by=["NUM_ANNOTATIONS"], ascending=True
@@ -254,7 +251,7 @@ class DefaultDataProducer(BaseDataProducer):
             available_task_types.append(2)
         if osm_stat[osm_stat['TYPE'] == 2]['COUNT'].sum() > 0:
             available_task_types.append(3)
-        print(f"available task types: {available_task_types}")
+
         if len(available_task_types) < 1:
             # if there is no osm data, skip this task
             self.logger.error(
@@ -282,9 +279,9 @@ class DefaultDataProducer(BaseDataProducer):
         if len(available_task_types) == 2:
             # FIXME: this is a hack. We find that non-area is more in quantity than area, so we give a higher weight to area.
             available_task_types.sort()
-            task_type = random.choice(available_task_types, weights=[0.7, 0.3])
+            task_type = self.rng.choices(available_task_types, weights=[0.7, 0.3], k=1)[0]
         else:
-            task_type = random.choice(available_task_types)
+            task_type = self.rng.choice(available_task_types)
 
         # choose the corresponding osm data type
         osm_data_type = task_osm_lut[task_type]

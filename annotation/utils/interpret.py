@@ -188,10 +188,42 @@ class GeometryNormalizer(object):
         return gpd
 
     def _normalize_center(self, gpd):
+     
+        def _get_center_on_different_geom_type(geom):
 
-        gpd["center"] = gpd["geometry"].apply(lambda x: x.centroid)
+            if geom.geom_type == "MultiPolygon":
+                all_centers = []
+                for poly in geom.geoms:
+                    all_centers.append(poly.centroid)
+            elif geom.geom_type == "GeometryCollection":
+                all_centers = []
+                for geom_i in geom.geoms:
+                    if geom_i.geom_type == "Polygon":
+                        all_centers.append(geom_i.centroid)
+                    elif geom_i.geom_type == "LineString":
+                        all_centers.append(geom_i.interpolate(0.5, normalized=True))
+                    elif geom_i.geom_type == "Point":
+                        all_centers.append(geom_i)
+                    else:
+                        raise "Not implemented yet"
+            else:
+                all_centers = geom.centroid
+            return all_centers
+        
+        def _get_normed_center_on_different_geom_type(geom, norm_affine_matrix):
+            
+            if isinstance(geom, list):
+                all_centers = []
+                for geom_i in geom:
+                    all_centers.append(affine_transform(geom_i, norm_affine_matrix))
+            else:
+                all_centers = affine_transform(geom, norm_affine_matrix)
+            return all_centers
+
+
+        gpd["center"] = gpd["geometry"].apply(lambda x: _get_center_on_different_geom_type(x))
         gpd["normed_center"] = gpd["center"].apply(
-            lambda geom: affine_transform(geom, self.norm_affine_matrix)
+            lambda geom: _get_normed_center_on_different_geom_type(geom, self.norm_affine_matrix)
         )
         return gpd
 
@@ -306,8 +338,9 @@ class Coord2NineGridMapper(Coord2ChessGridMapper):
 
 class BaseInterpreter(object):
 
-    _TAG_TEMPLATE_K = """Its key is {key}, which means {description}. The tag belongs to a tag group '{tgroup}'. The tag value is {value}."""
-    _TAG_TEMPLATE_KV = """{key}:{value}. The tag belongs to a tag group '{tgroup}'. This tag means: {description}"""
+    _TAG_TEMPLATE_K = """Its key is '{key}', which means {description}. The tag belongs to a tag group '{tgroup}'. The tag value is {value}."""
+    _TAG_TEMPLATE_KV = """'{key}:{value}'. The tag belongs to a tag group '{tgroup}'. This tag means: {description}"""
+    _TAG_TEMPLATE_FUZZY = """Its key is '{key}' and value is '{value}'. The tag can be interpreted by its key and value"""
 
     _QUERY_WIKI_FEATS_LIST = [
         "lang",
@@ -392,7 +425,7 @@ class BaseInterpreter(object):
         for _, element in working_elements.iterrows():
             clip = ""
             if element["clipped"] == True:
-                clip = "Some parts of the geometry extended out of this ROI.\r\n"
+                clip = "Some parts of the geometry extend outside this ROI.\n"
 
             clipped.append(clip)
 
@@ -415,7 +448,9 @@ class BaseInterpreter(object):
         working_elements = self.working_elements.iloc[:num_rows]
 
         interpretations = []
-        prompt_template = dict(k=self._TAG_TEMPLATE_K, kv=self._TAG_TEMPLATE_KV)
+        prompt_template = {'k': self._TAG_TEMPLATE_K, 
+                           'kv': self._TAG_TEMPLATE_KV,
+                           'fuzzy': self._TAG_TEMPLATE_FUZZY}
         c = self.conn_wiki.cursor()
         for _, element in working_elements.iterrows():
             element_prompt = []
@@ -424,20 +459,30 @@ class BaseInterpreter(object):
 
                 cursor = c.execute(self._SQL_TEMPLATE_QUERY_KEY_VALUE, (key, value))
                 res = cursor.fetchall()
-                no_value = False
+                template_ind = 'kv'
                 if len(res) < 1:
                     cursor = c.execute(self._SQL_TEMPLATE_QUERY_KEY, (key,))
                     res = cursor.fetchall()
-                    no_value = True
+                    template_ind = 'k'
                 # if len is still smaller than 1, it means there is no match case, try search more starting with the key
                 if len(res) < 1:
                     cursor = c.execute(self._SQL_TEMPLATE_QUERY_KEY_FUZZY, (key + "%",))
                     res = cursor.fetchall()
-                    no_value = True
+                    template_ind = 'k'
 
                 if len(res) < 1:
-                    # TODO: solve this anomaly. If there is a key, it has to represent something.
-                    continue
+                    res = [
+                        (
+                            "Unknown",
+                            "Unknown",
+                            key,
+                            value,
+                            "Unknown",
+                            "Unknown",
+                            "Unknown",
+                        )
+                    ]
+                    template_ind = 'fuzzy'
 
                 res_df = pd.DataFrame(res, columns=self._QUERY_WIKI_FEATS_LIST)
 
@@ -451,7 +496,6 @@ class BaseInterpreter(object):
                 ].to_dict("records")[0]
 
                 # generate an individual prompt for a tag's key value pair
-                template_ind = "k" if no_value else "kv"
                 individual_prompt = prompt_template[template_ind].format(
                     key=key,
                     value=value,
@@ -572,11 +616,11 @@ class AreaInterpreter(BaseInterpreter):
         candidate_areas: gpd.GeoDataFrame,
         wiki_db_path: str,
         interpret_tasks: list = [
-            dict(task="center_corse", edge_indicator=False),
-            dict(task="shape"),
-            dict(task="normed_area", precision=3),
-            dict(task="geometry", tolerance=0.6, precision=3),
-            dict(task="clip"),
+            {'task': "center_coarse", 'edge_indicator':False},
+            {'task': "shape"},
+            {'task': "normed_area", 'precision': 3},
+            {'task': "geometry", 'tolerance': 0.2, 'precision': 3},
+            {'task': "clip"},
         ],
         policy="largest",
         **kwargs
@@ -608,12 +652,20 @@ class AreaInterpreter(BaseInterpreter):
 
         return working_elements
 
-    def _task_center_corse(self, edge_indicator=False, **kwargs):
+    def _task_center_coarse(self, edge_indicator=False, **kwargs):
 
         coord_mapper = Coord2NineGridMapper(edge_indicator)
         center_pt = self.working_elements["normed_center"][0]
-        center_pt = (center_pt.x, center_pt.y)
-        corse_pos = coord_mapper.convert(center_pt)
+        if isinstance(center_pt, list):
+            all_corse_pos = []
+            for pt in center_pt:
+                center_pt = (pt.x, pt.y)
+                corse_pos = coord_mapper.convert(center_pt)
+                all_corse_pos.append(corse_pos)
+            corse_pos = ", ".join(all_corse_pos)
+        else:
+            center_pt = (center_pt.x, center_pt.y)
+            corse_pos = coord_mapper.convert(center_pt)
 
         return corse_pos
 
@@ -622,9 +674,9 @@ class AreaInterpreter(BaseInterpreter):
         geom = self.working_elements["normed_geometry"][0]
 
         if geom.geom_type == "MultiPolygon":
-            return "Multi-Polygonal"
+            return "multi-polygonal"
         elif geom.geom_type == "GeometryCollection":
-            return "Multi-Geometric"
+            return "multi-geometric"
 
         circle_area = geom.length**2 / (4 * np.pi)
         area_perim_ratio = geom.area / geom.length
@@ -717,33 +769,33 @@ class AreaInterpreter(BaseInterpreter):
 # This class is used for interpret the raw geometry of the nonearea into natural language
 class NoneAreaInterpreter(BaseInterpreter):
 
-    _SINUOSITY = dict(
-        straight=(1, 1.0005),
-        curved=(1.0005, 1.5),
-        twisted=(1.5, np.inf),
-        closed=(np.inf,),
-        broken=(0, 1),
-    )
+    _SINUOSITY = {
+        'straight': (1, 1.0005),
+        'curved': (1.0005, 1.5),
+        'twisted': (1.5, np.inf),
+        'closed': (np.inf,),
+        'broken': (0, 1),
+    }
 
-    _ORIENTATION = dict(
-        W_E=((-np.pi / 6, np.pi / 6),),
-        S_N=((-np.pi / 2, -np.pi / 3), (np.pi / 3, np.pi / 2)),
-        SW_NE=((np.pi / 6, np.pi / 3),),
-        NW_SE=((-np.pi / 3, -np.pi / 6),),
-    )
-
+    _ORIENTATION = {
+        'west-to-east': ((-np.pi / 6, np.pi / 6),),
+        'south-to-north': ((-np.pi / 2, -np.pi / 3), (np.pi / 3, np.pi / 2)),
+        'southwest-to-northeast': ((np.pi / 6, np.pi / 3),),
+        'northwest-to-southeast': ((-np.pi / 3, -np.pi / 6),),
+    }
+    
     def __init__(
         self,
         candidate_noneareas: gpd.GeoDataFrame,
         wiki_db_path: str,
         interpret_tasks: list = [
-            dict(task="endpoints_corse", edge_indicator=True),
-            dict(task="sinuosity"),
-            dict(task="normed_length", precision=3),
-            dict(task="length", precision=0),
-            dict(task="orientation"),
-            dict(task="geometry", tolerance=0.6, precision=3),
-            dict(task="clip"),
+            {'task': "endpoints_coarse", 'edge_indicator': True},
+            {'task': "sinuosity"},
+            {'task': "normed_length", 'precision': 3},
+            {'task': "length", 'precision':0},
+            {'task': "orientation"},
+            {'task': "geometry", 'tolerance': 0.2, 'precision': 3},
+            {'task': "clip"},
         ],
         policy="longgest_w_most_tags",
         **kwargs
@@ -783,7 +835,7 @@ class NoneAreaInterpreter(BaseInterpreter):
 
         return working_elements
 
-    def _task_endpoints_corse(self, edge_indicator=False, **kwargs):
+    def _task_endpoints_coarse(self, edge_indicator=False, **kwargs):
 
         geom = self.working_elements["normed_geometry"][0]
         start_pt = geom.interpolate(0)
@@ -801,7 +853,7 @@ class NoneAreaInterpreter(BaseInterpreter):
                     end_pt = line.interpolate(1, normalized=True)
                     max_length = line.length
         else:
-            return "The geometry is not a line or a multi-line"
+            return "the geometry is not a line or a multi-line"
 
         interpretation = []
         coord_mapper = Coord2NineGridMapper(edge_indicator)
@@ -811,7 +863,7 @@ class NoneAreaInterpreter(BaseInterpreter):
             corse_pos = coord_mapper.convert(pt)
             interpretation.append(corse_pos)
 
-        return f"One endpoint locates at {interpretation[0]}, the other at {interpretation[1]}"
+        return f"one located at the {interpretation[0]}, and the other at the {interpretation[1]}"
 
     def _task_sinuosity(self, **kwargs):
 
@@ -833,7 +885,7 @@ class NoneAreaInterpreter(BaseInterpreter):
                 sinuosity.append(get_sinuosity_single(line))
             sinuosity = max(sinuosity)
         else:
-            return "The geometry is not a line or a multi-line"
+            return "the geometry is not a line or a multi-line"
 
         for k, v in self._SINUOSITY.items():
             if len(v) == 1:
@@ -855,14 +907,14 @@ class NoneAreaInterpreter(BaseInterpreter):
 
     def _task_orientation(self, **kwargs):
 
-        orientation = "Cannot be determined"
+        orientation = "cannot be determined"
 
         sinuosity = kwargs.get("sinuosity", None)
         if sinuosity is None:
             raise ValueError("Sinuosity is not provided. Please run sinuosity task before orientation task.")
 
         if sinuosity not in ["curved", "straight"]:
-            orientation = "Too curved or too twisted to determine the orientation"
+            orientation = "too curved or twisted to determine accurately"
             return orientation
 
         geom = self.working_elements["normed_geometry"][0]
@@ -891,7 +943,7 @@ class NoneAreaInterpreter(BaseInterpreter):
                     if angle == np.pi / 2:
                         angle = -np.pi / 2
         else:
-            return "The geometry is not a line or a multi-line"
+            return "the geometry is not a line or a multi-line"
 
         for k, ranges in self._ORIENTATION.items():
             for r in ranges:
@@ -952,21 +1004,30 @@ class NoneAreaInterpreter(BaseInterpreter):
 
     def check_working_elements_validity(self) -> bool:
 
-        return True
+        validity = True
+        self.working_elements = self.working_elements[self.working_elements["normed_length"] > 0.3]
+        if len(self.working_elements) == 0:
+            validity = False
+        else:
+            if self.working_elements["num_tags"][0] == 0:
+                validity = False
+
+        return validity
+
 
 
 class AreaRelationInterpreter(object):
 
-    _ORIENTATION = dict(
-        left=((157.5, 180), (-180, -157.5)),
-        upper_left=((112.5, 157.5),),
-        upper=((67.5, 112.5),),
-        upper_right=((22.5, 67.5),),
-        right=((-22.5, 22.5),),
-        lower_right=((-67.5, -22.5),),
-        lower=((-112.5, -67.5),),
-        lower_left=((-157.5, -112.5),),
-    )
+    _ORIENTATION = {
+        'left': ((157.5, 180), (-180, -157.5)),
+        'upper_left': ((112.5, 157.5),),
+        'upper': ((67.5, 112.5),),
+        'upper_right': ((22.5, 67.5),),
+        'right': ((-22.5, 22.5),),
+        'lower_right': ((-67.5, -22.5),),
+        'lower': ((-112.5, -67.5),),
+        'lower_left': ((-157.5, -112.5),),
+    }
 
     """
     distance specifics:
@@ -977,14 +1038,14 @@ class AreaRelationInterpreter(object):
     Distant (0.4, 0.6): Elements are quite a distance apart, requiring more effort or time to traverse between them.
     Remote (0.6, 2): This indicates a significant distance between the elements, suggesting they are at opposite ends of the region of interest or very widely spaced.
     """
-    _DISTANCE = dict(
-        adjacent=(0, 0.01),
-        nearby=(0.01, 0.05),
-        close=(0.05, 0.2),
-        intermediate=(0.2, 0.4),
-        distant=(0.4, 0.6),
-        remote=(0.6, 2),
-    )
+    _DISTANCE = {
+        'adjacent': (0, 0.01),
+        'nearby': (0.01, 0.05),
+        'close': (0.05, 0.2),
+        'intermediate': (0.2, 0.4),
+        'distant': (0.4, 0.6),
+        'remote': (0.6, 2),
+    }
 
     def __init__(self, candidate_areas, n_neighbors=3):
         self.candidate_areas = candidate_areas
@@ -1045,7 +1106,7 @@ class AreaRelationInterpreter(object):
 
     def interpret_focal_area_meta(self):
         # prepare the information needed in a prompt template and save them into a dict
-        area_info = dict()
+        area_info = {}
         center_pos = tuple(self.focal_area.iloc[0].normed_center.coords[0])
         # drop the last comma
         corse_pos = self.coord_mapper.convert(center_pos)[:-1]
@@ -1074,12 +1135,12 @@ class AreaRelationInterpreter(object):
                         orientation = "-".join(k.split("_"))
                         break
             area = row["normed_area"]
-            area_info = dict(
-                inclusion=inclusion,
-                distance=distance,
-                orientation=orientation,
-                area=area,
-            )
+            area_info = {
+                'inclusion': inclusion,
+                'distance': distance,
+                'orientation': orientation,
+                'area': area,
+            }
             area_infos.append(area_info)
 
         return area_infos
@@ -1108,20 +1169,6 @@ class AreaRelationInterpreter(object):
         contextily.add_basemap(ax, crs="WGS84")
 
         return f, ax
-
-
-def tag_filter(tags, tag_filter_config):
-    # tags
-
-    if tag_filter_config is None:
-        return tags
-
-    filtered_tags = []
-    for tag in tags:
-        if tag in tag_filter_config:
-            filtered_tags.append(tag)
-
-    return filtered_tags
 
 
 def task2_interpretor(
@@ -1224,7 +1271,7 @@ def task3_interpretor(
 
     # TODO: use dynamic config
     # normalizer_config = interpret_configs['normalizer']
-    normalizer_config = dict(proj_epsg=2062)
+    normalizer_config = {'proj_epsg': 2062}
     normalizer = GeometryNormalizer(working_area, **normalizer_config)
     normed_area_gdf = normalizer.nonearea_normalization(masked_osm_nonearea_gdf)
 
@@ -1238,7 +1285,7 @@ def task3_interpretor(
         if not interpreter.check_working_elements_validity():
             return None
 
-        prompt_vars = dict()
+        prompt_vars = {}
 
         meta_interpretation = interpreter.interpret_meta()
         tag_interpretation = interpreter.interpret_tags()
@@ -1247,17 +1294,17 @@ def task3_interpretor(
         for i, tag in enumerate(tag_interpretation):
             tags += f"Tag {i+1}. {tag}\n"
 
-        prompt_vars.update(dict(tags=tags))
+        prompt_vars.update({"tags":tags})
 
         prompt_vars.update(meta_interpretation)
-        prompt_vars.update(dict(tag_interpretation=tag_interpretation))
+        prompt_vars.update({'tag_interpretation': tag_interpretation})
         prompt = interpreter.fill_prompt(prompt_template, **prompt_vars)
         osm_ids = interpreter.get_working_element_ids()
 
     # remove duplicate '.'
     prompt = ".".join(prompt.split(".."))
 
-    return dict(prompt=prompt, osm_ids=osm_ids)
+    return {'prompt': prompt, 'osm_ids': osm_ids}
 
 
 def annotation_parser_prompt1_annotator1(annotation):
