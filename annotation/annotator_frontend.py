@@ -118,7 +118,7 @@ class DataSaver(Process):
                     #     annotation = annotation_parser_prompt4_annotator(annotation)
                     # else:
                     #     annotation = annotation_parser_prompt1_annotator1(annotation)
-                    annotation = annotation
+                    annotation = annotation.strip()
                 except Exception as e:
                     self.logger.error(
                         f"Error in parsing the annotation:\n {annotation} \n {e}"
@@ -339,22 +339,6 @@ class ManagerProcess(Thread):
         self.logger.info("Started the data worker")
 
         while not self.exit_flag.is_set():
-            # check the affairs in the affair queue
-            # while not self.affair_queue.empty():
-            #     affair = self.affair_queue.get()
-            #     self.logger.info(f'Received affair {affair}')
-            #     if affair['type'] == 'add_annotator':
-            #         # add a new annotator connection
-            #         annotator_id = affair['annotator_id']
-            #         dest_addr = affair['dest_addr']
-            #         self.annotator_connections[annotator_id] = {'dest_addr': dest_addr, 'queue': MPQueue(maxsize=1000), 'lock': Lock()}
-            #         self.logger.info(f'Added annotator connection for annotator {annotator_id}')
-            #     elif affair['type'] == 'del_annotator':
-            #         # delete an annotator connection
-            #         annotator_id = affair['annotator_id']
-            #         if annotator_id in self.annotator_connections:
-            #             del self.annotator_connections[annotator_id]
-            #             self.logger.info(f'Deleted annotator connection for annotator {annotator_id}')
 
             # check the task queue and distribute the tasks to the annotator connections
             if not self.task_queue.empty():
@@ -399,24 +383,6 @@ class ManagerProcess(Thread):
                         f'Sent task to annotator {self.annotator_connections[sorted_annotator_ids[0]][0]["dest_addr"]}'
                     )
 
-            # check the annotator connections
-            # for annotator_id, annotator_conn in self.annotator_connections.items():
-            #     # check the last activity time of the annotator
-            #     if 'last_activity' in annotator_conn:
-            #         if time.time() - annotator_conn['last_activity'] > 10:
-            #             # if the last activity time is too old, remove the annotator connection
-            #             self.logger.info(f'Removed annotator connection for annotator {annotator_id}')
-            #             del self.annotator_connections[annotator_id]
-            #             continue
-
-            #     # check the queue of the annotator connection
-            #     if not annotator_conn['queue'].empty():
-            #         # if the queue is not empty, send the task to the annotator
-            #         task = annotator_conn['queue'].get()
-            #         self.logger.info(f'Sending task {task} to annotator {annotator_id}')
-            #         annotator_conn['connector'].send_task(task)
-            #         annotator_conn['last_activity'] = time.time()
-
             # wait for a while
             time.sleep(self.tick_interval)
 
@@ -455,7 +421,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--db_root",
         type=str,
-        default="/media/slytheringe/Disk/Gejunyao/develop/VLP/testdownloading",
+        default="../database",
         help="Path to the data file",
     )
     parser.add_argument(
@@ -480,7 +446,7 @@ if __name__ == "__main__":
         help="the osm wiki sqilite database path",
     )
     parser.add_argument(
-        "--log_file", type=str, default="annotation.log", help="the log file name"
+        "--log_file", type=str, default="logs/annotation.log", help="the log file name"
     )
     parser.add_argument(
         "--fetch_size",

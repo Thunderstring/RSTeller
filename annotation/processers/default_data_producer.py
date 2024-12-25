@@ -4,7 +4,7 @@ from threading import Lock
 
 if __name__ == "__main__":
     import sys
-    sys.path.append("/mnt/SrvUserDisk/Gejunyao/VLP/RSVLD/annotation")
+    sys.path.append("../")
 
 try:
     from base import BaseDataProducer
@@ -16,7 +16,8 @@ import os
 import pandas as pd
 import sqlite3
 import random
-
+import numpy as np
+import time
 INSUFFICIENT_OSM_DATA_CODE = 10
 
 
@@ -108,13 +109,20 @@ class DefaultDataProducer(BaseDataProducer):
 
         self.taskx_interpreter = {}
         self.rng = random.Random()
+        # set the seed for the random number generator
+        self.rng.seed(int(time.time()) + self.producer_id)
         self.init_interpreters(self.policy_config)
         
     def init_database(self):
 
-        self.conn_metadata = sqlite3.connect(self.metadata_db, timeout=60)
-        self.conn_osm = sqlite3.connect(self.osm_db, timeout=60)
-        self.conn_annotation = sqlite3.connect(self.annotation_db, timeout=60)
+        # set the seed for the numpy random number generator
+        np.random.seed(int(time.time()) + self.producer_id)
+        # set the seed for random module
+        random.seed(self.producer_id)
+
+        self.conn_metadata = sqlite3.connect(self.metadata_db, timeout=300)
+        self.conn_osm = sqlite3.connect(self.osm_db, timeout=300)
+        self.conn_annotation = sqlite3.connect(self.annotation_db, timeout=300)
         # caching 40G osm data usually takes 3 minutes
         self.osm_table = pd.read_sql_query(
             "SELECT * FROM osm_data WHERE TYPE in (1, 2)",
@@ -164,7 +172,7 @@ class DefaultDataProducer(BaseDataProducer):
         )
         
         # filter the metadata table by map element threshold
-        self.metadata_table = self.metadata_table[
+        self.metadata_table = self.metadata_table.loc[
             self.metadata_table["NUM_MAP_ELEMENTS"] > self.map_element_threshold
         ]
 
@@ -178,7 +186,7 @@ class DefaultDataProducer(BaseDataProducer):
         self.metadata_table = self.metadata_table.sample(n=(self.prefetch_size * 10))
 
         # set the NaN values in NUM_ANNOTATIONS to 0
-        self.metadata_table["NUM_ANNOTATIONS"] = self.metadata_table[
+        self.metadata_table.loc["NUM_ANNOTATIONS"] = self.metadata_table[
             "NUM_ANNOTATIONS"
         ].fillna(0)
         
@@ -194,7 +202,7 @@ class DefaultDataProducer(BaseDataProducer):
         self.metadata_table.reset_index(drop=True, inplace=True)
 
         sampled_patches = self.metadata_table["ID"].tolist()
-        print(f"sampled patches: {sampled_patches}")
+
         return sampled_patches
 
     def task_selector(self, image_name, patch_name, patch_id):
@@ -228,10 +236,10 @@ class DefaultDataProducer(BaseDataProducer):
         # )
         # osm_stat = c_osm_stat.fetchone()
 
-        osm_stat = self.osm_table.loc[
+        osm_elements = self.osm_table.loc[
             (self.osm_table["PATCH_NAME"] == "/".join([image_name, patch_name]))
         ]
-        osm_stat = osm_stat.groupby('TYPE')[['ID']].count().reset_index().rename(columns={'ID': 'COUNT'})
+        osm_stat = osm_elements.groupby('TYPE')[['ID']].count().reset_index().rename(columns={'ID': 'COUNT'})
 
         if osm_stat['COUNT'].sum() < 1:
             # if there is no osm data, skip this task
@@ -279,14 +287,14 @@ class DefaultDataProducer(BaseDataProducer):
         if len(available_task_types) == 2:
             # FIXME: this is a hack. We find that non-area is more in quantity than area, so we give a higher weight to area.
             available_task_types.sort()
-            task_type = self.rng.choices(available_task_types, weights=[0.7, 0.3], k=1)[0]
+            task_type = self.rng.choices(available_task_types, weights=[0.9, 0.1], k=1)[0]
         else:
             task_type = self.rng.choice(available_task_types)
 
         # choose the corresponding osm data type
         osm_data_type = task_osm_lut[task_type]
 
-        return task_type, osm_data_type
+        return task_type, osm_data_type, osm_elements
 
     def prompt_selector(self, task_type):
         """
@@ -338,7 +346,7 @@ class DefaultDataProducer(BaseDataProducer):
             # if there is no task, skip this iteration
             return None
 
-        task_type, osm_data_type = task_selecter_result
+        task_type, osm_data_type, osm_elements = task_selecter_result
 
         prompt_selector_result = self.prompt_selector(task_type)
         if prompt_selector_result is None:
@@ -347,18 +355,6 @@ class DefaultDataProducer(BaseDataProducer):
 
         prompt_id, prompt_template, annotator_ids = prompt_selector_result
 
-        # lagacy code: query the osm data from the osm database
-        # c_osm = self.conn_osm.cursor()
-        # c_osm.execute(
-        #     self._SQL_QUERY_OSM.format(",".join([str(i) for i in osm_data_type])),
-        #     ("/".join([image_name, patch_name]),),
-        # )
-
-        # osm_elements = c_osm.fetchall()
-        # update code: query the osm data from the cached osm table
-        osm_elements = self.osm_table.loc[
-            (self.osm_table["PATCH_NAME"] == "/".join([image_name, patch_name]))
-        ]
         osm_elements = osm_elements[osm_elements['TYPE'].isin(osm_data_type)]
         
         self.logger.info(
@@ -391,13 +387,13 @@ class DefaultDataProducer(BaseDataProducer):
                 self.policy_config,
             )
         except Exception as e:
-            self.logger.error(f"Error in interpreting the task {meta_data}, {e}")
+            self.logger.error(f"Error in interpreting the task. Patch id: {patch_id}. Task type: {task_type}, OSM data type: {osm_data_type}. Error: {e}")
             return None
 
         if interpretation is None:
             # if interpretation is None, it means the task is not suitable for this patch, skip this task
             self.logger.error(
-                f"No suitable interpretation for {meta_data}, skip this task. Patch id: {patch_id}."
+                f"No suitable interpretation for patch id: {patch_id}. Task type: {task_type}, OSM data type: {osm_data_type}"
             )
             return None
 
@@ -405,7 +401,7 @@ class DefaultDataProducer(BaseDataProducer):
         task = {
             "type": "annotation_task",
             "patch_id": int(patch_id),
-            "prompt_id": prompt_id,
+            "prompt_id": int(prompt_id),
             "valid_annotator_ids": annotator_ids,
         }
 

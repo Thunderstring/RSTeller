@@ -29,7 +29,7 @@ class MixtralAnnotator(BaseAnnotator):
         ]
 
         outputs = self.llm.chat(
-            messages, sampling_params=self.sampling_params, use_tqdm=False
+            messages, sampling_params=self.sampling_params#, use_tqdm=False
         )
 
         return outputs[0].outputs[0].text

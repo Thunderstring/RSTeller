@@ -1,18 +1,14 @@
 {
     "interpreter": {
         "filter_tag_keys": [
-            "tiger:cfcc",
-            "tiger:reviewed",
-            "tiger:upload_uuid.*",
-            "tiger:tlid",
-            "^tiger:zip.*",
-            "tiger:name_direction_prefix",
+            "^tiger:(?!seperated|county).*",
             "gnis:f.*",
             "gnis:created",
             "gnis:.*id",
             "gnis:edited",
             "addr:flats",
-            "ref",
+            "ref.*",
+            "^massgis:.*",
             "created_by",
             ".*wikidata.*",
             ".*wikipedia.*",

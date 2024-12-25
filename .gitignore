@@ -9,3 +9,6 @@ notebooks/
 # ignore database folder
 database/
 database
+
+# ignore logs folder
+**/logs/

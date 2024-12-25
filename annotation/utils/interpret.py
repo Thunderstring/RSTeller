@@ -425,7 +425,7 @@ class BaseInterpreter(object):
         for _, element in working_elements.iterrows():
             clip = ""
             if element["clipped"] == True:
-                clip = "Some parts of the geometry extend outside this ROI.\n"
+                clip = "Some parts of the geometry extend beyond this ROI.\n"
 
             clipped.append(clip)
 
@@ -629,13 +629,15 @@ class AreaInterpreter(BaseInterpreter):
         assert policy in ["largest"], "Only largest area is supported for now"
 
         super().__init__(interpret_tasks, policy, wiki_db_path, candidate_areas, **kwargs)
+        self.valid_threshold = 0.05
         self.candidate_areas = self.candidate_elements
         self.working_elements = self.get_working_elements()
-        self.valid_threshold = 0.1
+        
 
     def sort_elements(self):
         # this method is used to sort the candidate areas based on policy
         sorted_elements = None
+        self.candidate_areas = self.candidate_areas[self.candidate_areas['normed_area'] > self.valid_threshold]
         if self.policy == "largest":
             sorted_elements = self.candidate_areas.sort_values(
                 "normed_area", ascending=False
@@ -648,9 +650,12 @@ class AreaInterpreter(BaseInterpreter):
     def get_working_elements(self):
 
 
-        working_elements = self.sort_elements().iloc[[0]]
+        working_elements = self.sort_elements().iloc[:3]
+        
+        if len(working_elements) > 0:
+            working_elements = working_elements.sample(1)
 
-        return working_elements
+        return working_elements.reset_index(drop=True)
 
     def _task_center_coarse(self, edge_indicator=False, **kwargs):
 
@@ -746,7 +751,7 @@ class AreaInterpreter(BaseInterpreter):
 
         validity = True
 
-        if self.working_elements["normed_area"][0] < self.valid_threshold:
+        if len(self.working_elements) == 0:
             validity = False
 
         return validity
@@ -806,34 +811,42 @@ class NoneAreaInterpreter(BaseInterpreter):
         ], "Only longgest as well as the most tags nonearea is supported for now"
 
         super().__init__(interpret_tasks, policy, wiki_db_path, candidate_noneareas, **kwargs)
+        self.valid_threshold = 0.3
         self.candidate_noneareas = self.candidate_elements
         self.working_elements = self.get_working_elements()
+        
 
     def sort_elements(self):
         # this method is used to sort the candidate areas based on policy
         sorted_elements = None
         if self.policy == "longgest_w_most_tags":
+            self.candidate_noneareas = self.candidate_noneareas[self.candidate_noneareas["normed_length"] > self.valid_threshold]
+            
             sorted_elements = self.candidate_noneareas.sort_values(
                 "normed_length", ascending=False
-            ).reset_index()
+            )
             # get the top 3 noneareas with the most tags, note that there may be fewer than 3 noneareas available
             sorted_elements = sorted_elements.iloc[:3]
             sorted_elements["num_tags"] = sorted_elements["tags"].apply(
                 lambda x: len(dict(x))
             )
-            sorted_elements = sorted_elements.sort_values(
-                "num_tags", ascending=False
-            ).reset_index()
+            # sorted_elements = sorted_elements.sort_values(
+            #     "num_tags", ascending=False
+            # ).reset_index()
         else:
             raise NotImplementedError("Only longgest nonearea is supported for now")
 
-        return sorted_elements
+        return sorted_elements.reset_index(drop=True)
 
     def get_working_elements(self):
 
-        working_elements = self.sort_elements().iloc[[0]]
+        # working_elements = self.sort_elements().iloc[[0]]
+        working_elements = self.sort_elements()
+        
+        if len(working_elements) > 0:
+            working_elements = working_elements.sample(1)
 
-        return working_elements
+        return working_elements.reset_index(drop=True)
 
     def _task_endpoints_coarse(self, edge_indicator=False, **kwargs):
 
@@ -871,7 +884,8 @@ class NoneAreaInterpreter(BaseInterpreter):
             start_pt = line.interpolate(0)
             end_pt = line.interpolate(1, normalized=True)
             straight_dist = start_pt.distance(end_pt)
-            sinuosity = np.divide(line.length, straight_dist)
+            with np.errstate(divide='ignore'):
+                sinuosity = np.divide(line.length, straight_dist)
             return sinuosity
 
         geom = self.working_elements["normed_geometry"][0]
@@ -1005,7 +1019,7 @@ class NoneAreaInterpreter(BaseInterpreter):
     def check_working_elements_validity(self) -> bool:
 
         validity = True
-        self.working_elements = self.working_elements[self.working_elements["normed_length"] > 0.3]
+
         if len(self.working_elements) == 0:
             validity = False
         else:
@@ -1199,6 +1213,8 @@ def task2_interpretor(
     masked_osm_area_gdf["clipped"] = (
         osm_area_gdf["geometry"].within(box(*working_area)).apply(lambda x: not x)
     )
+    if len(masked_osm_area_gdf) == 0:
+        return None
 
     # TODO: use dynamic config
     # normalizer_config = interpret_configs['normalizer']
@@ -1268,6 +1284,9 @@ def task3_interpretor(
     masked_osm_nonearea_gdf["clipped"] = (
         osm_nonearea_gdf["geometry"].within(box(*working_area)).apply(lambda x: not x)
     )
+    
+    if len(masked_osm_nonearea_gdf) == 0:
+        return None
 
     # TODO: use dynamic config
     # normalizer_config = interpret_configs['normalizer']
