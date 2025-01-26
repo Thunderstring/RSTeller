@@ -27,7 +27,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 
 
-# the following are the example parameters for downloading images from GEE
+# TODO: the following are the example parameters for downloading images from GEE
 # we need argparser to parse the command line argument to get the parameters dynamically.
 
 
@@ -60,7 +60,7 @@ N_WORKERS = 50
 KERNEL_SHAPE = [PATCH_SIZE, PATCH_SIZE]
 
 # The folder to save all images and database files
-WORKING_DIR = "/mnt/SrvDataDisk/RSVLD"
+WORKING_DIR = "/dir/to/save/images"
 DATABASE_DIR = 'metadata.db'
 # WORKING_DIR = "/mnt/SrvUserDisk/Gejunyao/VLP/test_downloader"
 
