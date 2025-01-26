@@ -23,15 +23,9 @@ INSUFFICIENT_OSM_DATA_CODE = 10
 
 class DefaultDataProducer(BaseDataProducer):
 
-    # _SQL_QUERY_METAS = """
-    #                select p.IMAGE_NAME, p.NAME, p.SAMPLE_CENTER_X, p.SAMPLE_CENTER_Y, p.DIMENSION, p.DOWNLOAD_TIME, p.CRS, i.SCALE, p.ID from patch p
-    #                left join image i on p.IMAGE_NAME = i.NAME
-    #                where p.NUM_MAP_ELEMENTS > ? and p.NUM_ANNOTATIONS is NULL and p.ID > 8756578
-    #                order by RANDOM() LIMIT ?;
-    # """
     _SQL_QUERY_METAS = """
                 select p.IMAGE_NAME, p.NAME, p.SAMPLE_CENTER_X, p.SAMPLE_CENTER_Y, p.DIMENSION, p.DOWNLOAD_TIME, p.CRS, i.SCALE, p.ID, p.STATUS, p.NUM_MAP_ELEMENTS, p.NUM_ANNOTATIONS from patch p
-                left join image i on p.IMAGE_NAME = i.NAME;
+                left join image i on p.IMAGE_NAME = i.NAME where p.NUM_ANNOTATIONS is NULL;
                 """
     _SQL_QUERY_OSM = """
                    select OSM_ID, TAGS, GEOMETRY from osm_data where PATCH_NAME =? and TYPE in ({});   
@@ -125,7 +119,7 @@ class DefaultDataProducer(BaseDataProducer):
         self.conn_annotation = sqlite3.connect(self.annotation_db, timeout=300)
         # caching 40G osm data usually takes 3 minutes
         self.osm_table = pd.read_sql_query(
-            "SELECT * FROM osm_data WHERE TYPE in (1, 2)",
+            "SELECT * FROM osm_data WHERE TYPE = 1",
             self.conn_osm,
         )
         self.logger.info("Connected to the database")
@@ -177,16 +171,16 @@ class DefaultDataProducer(BaseDataProducer):
         ]
 
         # filter the metadata table by status,
-        # statue // INSUFFICIENT_OSM_DATA_CODE ！= 0 means there is no osm data for this patch
-        self.metadata_table = self.metadata_table[
-            self.metadata_table["STATUS"] // INSUFFICIENT_OSM_DATA_CODE == 0
+        # statue ！= 0 means it is marked as an invalid patch, skip it
+        self.metadata_table = self.metadata_table.loc[
+            self.metadata_table["STATUS"] != 0
         ]
 
         # sample the metadata table with 10 x prefetch_size
-        self.metadata_table = self.metadata_table.sample(n=(self.prefetch_size * 10))
+        self.metadata_table = self.metadata_table.sample(frac=1).iloc[: self.prefetch_size * 10]
 
         # set the NaN values in NUM_ANNOTATIONS to 0
-        self.metadata_table.loc["NUM_ANNOTATIONS"] = self.metadata_table[
+        self.metadata_table["NUM_ANNOTATIONS"] = self.metadata_table.loc[
             "NUM_ANNOTATIONS"
         ].fillna(0)
         
@@ -195,11 +189,11 @@ class DefaultDataProducer(BaseDataProducer):
             by=["NUM_ANNOTATIONS"], ascending=True
         )
 
-        # get the first prefetch_size meta data
-        self.metadata_table = self.metadata_table.head(self.prefetch_size)
-
         # reset the index of the metadata table
         self.metadata_table.reset_index(drop=True, inplace=True)
+
+        # get the first prefetch_size meta data
+        self.metadata_table = self.metadata_table.iloc[: self.prefetch_size]
 
         sampled_patches = self.metadata_table["ID"].tolist()
 
@@ -287,7 +281,7 @@ class DefaultDataProducer(BaseDataProducer):
         if len(available_task_types) == 2:
             # FIXME: this is a hack. We find that non-area is more in quantity than area, so we give a higher weight to area.
             available_task_types.sort()
-            task_type = self.rng.choices(available_task_types, weights=[0.9, 0.1], k=1)[0]
+            task_type = self.rng.choices(available_task_types, weights=[0.6, 0.4], k=1)[0]
         else:
             task_type = self.rng.choice(available_task_types)
 
@@ -395,6 +389,16 @@ class DefaultDataProducer(BaseDataProducer):
             self.logger.error(
                 f"No suitable interpretation for patch id: {patch_id}. Task type: {task_type}, OSM data type: {osm_data_type}"
             )
+            c = self.conn_metadata.cursor()
+            c.execute(
+                "UPDATE patch SET STATUS =? WHERE ID =?",
+                (
+                    20,
+                    patch_id,
+                ),
+            )
+            self.conn_metadata.commit()
+            
             return None
 
         # FIXME: use patch_id as the key may not be unique. As there may be duplicate downloads of the same patch, the key may be the same.

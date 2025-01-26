@@ -1,25 +1,11 @@
 {
     "interpreter": {
         "filter_tag_keys": [
-            "^tiger:(?!seperated|county).*",
-            "gnis:f.*",
-            "gnis:created",
-            "gnis:.*id",
-            "gnis:edited",
-            "addr:flats",
-            "ref.*",
-            "^massgis:.*",
-            "created_by",
-            ".*wikidata.*",
-            ".*wikipedia.*",
-            "^[Nn][Hh][Dd](?![:][Ff][Tt][Yy][Pp][Ee]).*", 
-            "FMMP_.*",
-            ".*source.*",
-            "^nysgissam.*",
-            ".*postcode.*",
-            ".*housenumber.*",
-            ".*phone.*",
-            ".*website.*"
+            "^(tiger:(?!seperated|county).*|massgis:.*|nysgissam.*)",
+            "^gnis:(f.*|created|.*id|edited)",
+            "^(addr:flats|ref.*|FMMP_.*|created_by|source|name:.*)",
+            ".*(wikidata|wikipedia|address|postcode|housenumber|phone|website).*",
+            "^[Nn][Hh][Dd](?![:][Ff][Tt][Yy][Pp][Ee]).*"
         ]
     }
 }

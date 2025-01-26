@@ -783,10 +783,10 @@ class NoneAreaInterpreter(BaseInterpreter):
     }
 
     _ORIENTATION = {
-        'west-to-east': ((-np.pi / 6, np.pi / 6),),
-        'south-to-north': ((-np.pi / 2, -np.pi / 3), (np.pi / 3, np.pi / 2)),
-        'southwest-to-northeast': ((np.pi / 6, np.pi / 3),),
-        'northwest-to-southeast': ((-np.pi / 3, -np.pi / 6),),
+        'east-west': ((-np.pi / 6, np.pi / 6),),
+        'south-north': ((-np.pi / 2, -np.pi / 3), (np.pi / 3, np.pi / 2)),
+        'southwest-northeast': ((np.pi / 6, np.pi / 3),),
+        'northwest-southeast': ((-np.pi / 3, -np.pi / 6),),
     }
     
     def __init__(

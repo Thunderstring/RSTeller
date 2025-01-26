@@ -90,8 +90,8 @@ class DataSaver(Process):
         # connect to the database
         self.logger.info("Connecting to the database")
 
-        self.conn_annotation = sqlite3.connect(self.annotation_db, timeout=60)
-        self.conn_metadata = sqlite3.connect(self.metadata_db, timeout=60)
+        self.conn_annotation = sqlite3.connect(self.annotation_db, timeout=360)
+        self.conn_metadata = sqlite3.connect(self.metadata_db, timeout=360)
         self.logger.info("Connected to the database")
 
         while not self.exit_flag.is_set():
@@ -257,19 +257,19 @@ class ManagerProcess(Thread):
             for i in range(self.num_data_producer)
         ]
 
-        # rewrite_producer = RewriteDataProducer(
-        #     self.task_queue,
-        #     self.task_lock,
-        #     self.affair_queue,
-        #     self.affair_lock,
-        #     self.db_root,
-        #     self.annotation_db,
-        #     "annotation_meta.db",
-        #     max_rewrites=5,
-        #     prefetch_size=10000,
-        #     producer_id=len(self.data_producers) + 1,
-        # )
-        # self.data_producers.append(rewrite_producer)
+        rewrite_producer = RewriteDataProducer(
+            self.task_queue,
+            self.task_lock,
+            self.affair_queue,
+            self.affair_lock,
+            self.db_root,
+            self.annotation_db,
+            "annotation_meta.db",
+            max_rewrites=3,
+            prefetch_size=10000,
+            producer_id=len(self.data_producers) + 1,
+        )
+        self.data_producers.append(rewrite_producer)
 
         self.data_worker = DataSaver(
             self.save_queue,

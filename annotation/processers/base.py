@@ -70,7 +70,7 @@ class BaseDataProducer(Process, metaclass=abc.ABCMeta):
 
     # a wrapper function for run to ignore the KeyboardInterrupt exception
     def run(self):
-        
+        time.sleep(random.uniform(0, 120))
         try:
             self._run()
         except KeyboardInterrupt:
