@@ -1,0 +1,11 @@
+{
+    "interpreter": {
+        "filter_tag_keys": [
+            "^(tiger:(?!seperated|county).*|massgis:.*|nysgissam.*)",
+            "^gnis:(f.*|created|.*id|edited)",
+            "^(addr:flats|ref.*|FMMP_.*|created_by|source|name:.*)",
+            ".*(wikidata|wikipedia|address|postcode|housenumber|phone|website).*",
+            "^[Nn][Hh][Dd](?![:][Ff][Tt][Yy][Pp][Ee]).*"
+        ]
+    }
+}
