@@ -399,7 +399,7 @@ if __name__ == '__main__':
     parser.add_argument('--vis_option', type=str, default=str(VIS_OPTION), help='The visualization options for normalizing the image bands.')
     parser.add_argument('--n_workers', type=int, default=50, help='The number of workers for asynchronous downloading.')
     parser.add_argument('--kernel_shape', type=str, default=str(KERNEL_SHAPE), help='The shape of the patches expected by the model.')
-    parser.add_argument('--working_dir', type=str, default='/media/slytheringe/Disk/Gejunyao/develop/VLP/testdownloading', help='The folder to save all images and database files.')
+    parser.add_argument('--working_dir', type=str, default='./database', help='The folder to save all images and database files.')
     parser.add_argument('--database_dir', type=str, default=DATABASE_DIR, help='The folder to save the downloaded database files.')
     parser.add_argument('--starting_ind', type=int, default=STARTING_IND, help='The starting index of the downloaded.')
     parser.add_argument('--sample_interval', type=int, default=SAMPLE_INTERVAL, help='The sample interval between patches.')
