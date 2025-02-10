@@ -32,7 +32,7 @@ python tools/ee_image_downloader.py \
   --drop_rate 0.5 \
   --service_account "scriptlogin@your-project.iam.gserviceaccount.com" \
   --credentials_file "credentials.json"
-  ```
+```
 
 ### GEE Data Download - Parameter Details
 
