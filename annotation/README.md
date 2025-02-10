@@ -1,82 +1,84 @@
-# A distributed annotation system for RSTeller
+# A Distributed Annotation System for RSTeller
 
 ## System Overview
 
-![system overview](../assets/annotation_system.jpg)
+![System Overview](../assets/annotation_system.jpg)
 
-The caption system mainly consists of two parts: the annotator frontend and the annotator backend. The annotator backend is used to host LLM captioner in the backend and each backend hosts an LLM service instance. It can also be easily swaped with other LLM or any form of implementation regardless of running on GPU, cpu or simply using API. The annotator frontend is a multi-process application that hosts three process groups: producer process, saver process and connector process. The producer process is responsible for reading raw OSM data and interpret raw data into a formatted prompt for the annotator backend. The saver process is responsible for parsing the response from the annotator backend and saving them to the database. This design allows the programmer to easily swap the database used in this system, adding more different data producer or other parser without affecting other components. The connector process is responsible for connecting to the annotator backend and sending the data back and forth between the frontend and backend. Each backend needs a connector to keep the communication. The main process of the annotator frontend also hosts multiple threads to handle the managment of all the processes and the assignment of all captioning tasks. The process management is mainly responsible for starting and stopping the processes, and the task assignment is responsible for assigning tasks to the available annotator backend. The task assignment is based on the availability of the backend and the load of the backend. This frontend so far does not have any user interface and also lacks a system monitor to monitor the real-time performance and the load. We wish anyone who is interested in this project to contribute to this project by adding more features or improving the existing ones. **PRs are welcome!**
+The system consists of two main components: the annotator frontend and the annotator backend. The annotator backend hosts the LLM captioning service and each instance of the backend runs an LLM service. The backend can be easily swapped with any other LLM implementation, whether it runs on a GPU, CPU, or is accessed via an API. The annotator frontend is a multi-process application that manages three process groups: producer process, saver process, and connector process.
+
+- **Producer Process**: Responsible for reading raw OSM data and transforming it into formatted prompts for the annotator backend.
+- **Saver Process**: Handles parsing the responses from the annotator backend and saving them to the database. This design allows for easy database swapping, as well as adding new data producers or parsers without affecting other components.
+- **Connector Process**: Facilitates communication between the annotator frontend and backend by sending data back and forth. Each backend requires a connector to maintain communication.
+
+The main process of the annotator frontend also runs multiple threads to manage all processes and assign captioning tasks. The **Process Management** component is responsible for starting and stopping the processes, while the **Task Assigner** distributes tasks to available annotators based on backend availability and load. Currently, the frontend does not include a user interface and lacks a system monitor for real-time performance and load tracking. We welcome contributions to improve this system, including adding features or enhancing existing ones. **PRs are welcome!**
 
 ## Preparation for Running the System
 
-Before running the system, make sure you have made the following preparation:
+Before running the system, ensure the following preparations are made:
 
 ### Collecting Raw Image Patches and OSM Data
 
-You have run the [scripts](../download) for image collection and raw OSM data collection. You have gained populated `metadata.db` and `osm.db` for the subsequent steps.
+Run the [scripts](../download) to collect image patches and raw OSM data. This will generate the `metadata.db` and `osm.db` files, which are required for the subsequent steps.
 
 ### Prepare the OSM Wiki Database
 
-Download the OSM taginfo Wiki [database](https://taginfo.openstreetmap.org/sources/wiki) which is a sqlite database for tag interpretation in the annotation process.
+Download the OSM taginfo Wiki [database](https://taginfo.openstreetmap.org/sources/wiki), which is an SQLite database used for tag interpretation during the annotation process.
 
-### Setting up the Annotaton Database
+### Setting up the Annotation Database
 
-The annotation process requires a database to store all the annotations, annotator information and prompt template. The creation of the database can be done with the data builder [notebook](../tools/database_builder.ipynb).
+The annotation process requires a database to store all annotations, annotator information, and prompt templates. You can create this database using the data builder [notebook](../tools/database_builder.ipynb).
 
-When the database is set up, some initial data needs to be added to the database.
+Once the database is set up, you need to add some initial data:
 
-1. Set up the `annotator` table with the annotator information.
+1. **Set up the `annotator` table**: Add annotator names in the `ANNOTATOR` column. This determines which annotators are available for the annotation process. The names should match those listed in the `_VALID_MODELS` in the `annotation/annotators` directory, representing the backend annotators that will be used.
 
-    You need to add the annotator name in the `ANNOTATOR` column of the `annotator` table. This decides what annotators are available for the annotation process. The name should match the `_VALID_MODELS` provided in the `annotation/annotators` directory, which is the annotator backend you may run.
+2. **Set up the `prompt` table**: Prepare the prompt templates for the captioning task. Some examples can be found [here](../docs/prompt_templates.md). Make sure to properly include placeholders for different types of prompts as shown in the example templates. Add the template to the `PROMPT` column and specify the prompt type in the `TYPE` column. We currently support three prompt types:
+   - `2`: `area`
+   - `3`: `non-area`
+   - `11`: `caption revision`
 
-2. Set up the `prompt` table with the prompt template.
+3. **Set up the `annotator_prompt` table**: Create the mapping between annotators and prompts. Add the mapping in the `ANNOTATOR` and `PROMPT` columns, both referencing the `ID` columns in the `annotator` and `prompt` tables, respectively.
 
-    You need to prepare the prompt template for the captioning task. Some examples of prompt template can be found [here](../docs/prompt_templates.md). Note that you need to properly include the placeholders for different types of prompt as our example prompt templates do. The prompt template should be added to the `PROMPT` column.
-
-    Besides, you need to add a prompt type to the `TYPE` column, which is an integer value. This is used to determine the type of the prompt. In present, we only support three types of prompt: `2`, `3` and `11`, which stands for `area`, `non-area` and `caption revision`, respectively.
-
-3. Set up the `annotator_prompt` table with the mapping between annotator and prompt.
-
-    You need to add the mapping between annotator and prompt in the `annotator_prompt` table. This is used to determine which prompt is assigned to which annotator. The mapping should be added to the `ANNOTATOR` and `PROMPT` columns. Both columns should be integer values which is the `ID` column in the `annotator` and `prompt` table, respectively.
-
-During the annotation process, the data producer will first randomly select a prompt template with valid type and format a "task" with prompt wrapped in it. Then the prompt is passed to task assigner which looks for valid annotators via the `annotator_prompt` table and assigns the task to the available annotator. The annotator backend will then start the captioning task and the response is saved to the database.
+During the annotation process, the data producer selects a random valid prompt template and formats it into a "task." The task is passed to the task assigner, which identifies available annotators via the `annotator_prompt` table and assigns the task accordingly. The annotator backend processes the task, and the response is saved to the database.
 
 ### Setting up Revision Database (Optional)
 
-If you want to use the system for caption augmentation, you need an extra database to store examples of the raw captions and their corresponding revisions pairs. The creation of the revision database can be done with the data builder [notebook](../tools/database_builder.ipynb) as well. The are two tables in the revision database needed to be set up:
+If you plan to use the system for caption augmentation, you will need an additional database to store raw captions and their corresponding revisions. You can create this revision database using the data builder [notebook](../tools/database_builder.ipynb). The revision database has two tables to set up:
 
-1. Set up the `rewrite_raw` table with the raw captions.
+1. **Set up the `rewrite_raw` table**: This table stores raw captions and requires manual input for three columns: `patch_id`, `prompt_id`, and `text`.
 
-    The `rewrite_raw` table contains three columns need manual input: `patch_id`, `prompt_id` and `text`. The `patch_id` column is the ID of the image patch in the `patch` table for the metadata database, the `prompt_id` column is the ID of the prompt in the `prompt` table of the annotation database. Only the caption captioned with the corresponding prompt may use the raw example with the same `prompt_id`. The `text` column is the raw caption.
+   - The `patch_id` corresponds to the image patch ID in the `patch` table of the metadata database.
+   - The `prompt_id` corresponds to the ID of the prompt in the `prompt` table of the annotation database.
+   - The `text` column contains the raw caption.
 
-    The `patch_id` is used to trace back the revision pairs to the corresponding image patch which is not strictly necessary for the revision process, but it is helpful for the data management.
+2. **Set up the `rewrite_examples` table**: This table stores caption revisions and requires manual input for two columns: `rewrite_raw_id` and `rewrite_text`.
 
-2. Set up the `rewrite_examples` table with the revisions.
-
-    The `rewrite_examples` table contains two columns need manual input: `rewrite_raw_id` and `rewrite_text`. The `rewrite_raw_id` column is the ID of the raw caption in the `rewrite_raw` table, the `rewrite_text` column is the revision caption. The revision caption should be different from the raw caption.
+   - The `rewrite_raw_id` is the ID of the raw caption from the `rewrite_raw` table.
+   - The `rewrite_text` column contains the revision of the raw caption.
 
 ## Running the System
 
 ### Step 1: Start the Annotator Backend
 
-You need to start the annotator backend before running the annotator frontend. The backend can be started by running the `annotator_backend.py` script. Here is an example command:
+The annotator backend must be started before the frontend. Start the backend by running the `annotator_backend.py` script. Example command:
 
 ```bash
 #!/bin/bash
 python annotator_backend.py \
 --annotator MixtralAnnotator \
 --model-id mistralai/Mistral-Nemo-Instruct-2407 \
---port 5002
+--port 5000
 ```
 
-The `annotator` argument specifies the annotator backend to use, which is `MixtralAnnotator` in this case. This is the the class name of the annotator backend in the `annotators` directory. Developers can add more annotator backends by creating new classes in the `annotators` directory which inherit from the `BaseAnnotator` class and register them in the `annotators/__init__.py` file. For now, all the annotator backends are hosted by vLLM on local machine. Developers can also write code to run on CPU or using API. Frameworks like LangChain or GraphRAG can be implemented as annotator backends to support more complicated agents.
+The `annotator` argument specifies the backend to use, such as `MixtralAnnotator`. This refers to the class name of the backend in the `annotators` directory. Developers can add additional backends by creating new classes in the `annotators` directory that inherit from `BaseAnnotator` and registering them in the `annotators/__init__.py` file. Currently, all annotators are hosted locally via vLLM, but you can also write code to run on CPU or use an API. Frameworks like LangChain or GraphRAG can also be implemented as annotator backends to support more advanced agents.
 
-The `model-id` argument specifies the model ID of the annotator backend, which is `mistralai/Mistral-Nemo-Instruct-2407` in this case. This is the actual model used by the annotator backend to perform the captioning task.
+The `model-id` argument specifies the model ID used by the backend. In this case, it's `mistralai/Mistral-Nemo-Instruct-2407`, which is the model performing the captioning task.
 
-The `port` argument specifies the port to run the annotator backend on. Each annotator backend should have a unique port.
+The `port` argument specifies the port on which the backend will run. Each backend should use a unique port.
 
 ### Step 2: Start the Annotator Frontend
 
-Once the annotator backends are running, you can start the annotator frontend by running the `annotator_frontend.py` script. Here is an example command:
+Once the annotator backends are running, start the annotator frontend by running the `annotator_frontend.py` script. Example command:
 
 ```bash
 #!/bin/bash
@@ -87,18 +89,18 @@ python annotator_frontend.py \
 --num_data_producer 4 
 ```
 
-The `db_root` argument specifies the root directory of all the databases needed. The following databases are needed:
+The `db_root` argument specifies the root directory containing all necessary databases:
 
-- `metadata.db`: the metadata database for image patch collection.
-- `osm.db`: the OSM database for raw OSM data collection.
-- `annotation.db`: the annotation database for storing all the annotations, annotator information and prompt template.
-- `annotation_meta.db` (optional): the database for revision process.
-- `taginfo-wiki.db`: the OSM taginfo Wiki database for tag interpretation.
+- `metadata.db`: Metadata database for image patch collection.
+- `osm.db`: OSM database for raw OSM data collection.
+- `annotation.db`: Annotation database for storing all annotations, annotator information, and prompt templates.
+- `annotation_meta.db` (optional): Database for the revision process.
+- `taginfo-wiki.db`: OSM taginfo Wiki database for tag interpretation.
 
-The `fetch_size` argument specifies the number of rows to fetch for the data producer at a time. As frequent reading of the database can cause performance issues, we implement a batch reading mechanism to reduce the number of database queries and cache the data into the memory.
+The `fetch_size` argument defines the number of rows to fetch at a time for the data producer. To optimize performance, we use a batch reading mechanism to reduce the number of database queries and cache the data in memory.
 
-The `map_element_threshold` argument specifies the minimum number of elements in the OSM data to be considered as a valid element. Unvalid elements are filtered out before the data producer reads the data.
+The `map_element_threshold` argument specifies the minimum number of tags for an OSM element to be considered valid. Invalid elements are filtered out before the data producer reads the data.
 
-The `num_data_producer` argument specifies the number of data producer processes to run. Each data producer process reads the raw OSM data and interpret it into a formatted prompt for the annotator backend. The data producer process also assigns the tasks to the available annotator backend.
+The `num_data_producer` argument specifies the number of data producer processes to run. Each data producer process reads raw OSM data and interprets it into formatted prompts for the annotator backend, and assigns tasks to the available annotators.
 
-Note that you need to modify codes from line `283` to `286` in `annotator_frontend.py` to match the acutal annotator backends. This is hardcoded for now and may be improved in the future.
+>Note: You will need to modify lines `283` to `286` in `annotator_frontend.py` to match the actual annotator backends. This is hardcoded for now and may be improved in the future.
